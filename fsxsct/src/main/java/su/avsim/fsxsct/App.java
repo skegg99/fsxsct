@@ -1,26 +1,23 @@
 package su.avsim.fsxsct;
 
+import java.util.*;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
-import java.util.*;
-//import java.text.DecimalFormatSymbols;
-
-//import java.util.Formatter;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.helpers.DefaultHandler;
 
-
 class GeoCords {
+
     double lat, lon;
 
-    public GeoCords (double lat, double lon) {
+    public GeoCords(double lat, double lon) {
         this.lat = lat;
         this.lon = lon;
     }
-
 }
+
 /**
  * Класс содержит экземпляр точки РД
  */
@@ -87,7 +84,7 @@ class Trig {
     /**
      * Метод вычисляет истинный азимут из точки 1 в точку 2
      * закомментированные фрагменты отвечают за вычисление этого расстояния - пока не надо
-     *
+     * вовращает угол в радианах
      * @param startLat
      * @param startLon
      * @param endLat
@@ -115,9 +112,49 @@ class Trig {
         return Double.valueOf(Math.atan2(dLon, dPhi)).floatValue();
     }
 
-    public static GeoCords getPoint(double lat, double lon, float dist) {
+    /**
+     * Метод возвращает кооринаты точки по исходной точке, азимуту и расстоянию
+     * азимут принимает в радианах
+     * @param lat
+     * @param lon
+     * @param dist
+     * @param brng
+     * @return
+     */
+    public static GeoCords getPoint(double lat, double lon, float dist, double brng) {
+
+        /*
+         * lat2 = lat1 + d*Math.cos(brng);
+        var dPhi = Math.log(Math.tan(lat2/2+Math.PI/4)/Math.tan(lat1/2+Math.PI/4));
+        var q = (!isNaN(dLat/dPhi)) ? dLat/dPhi : Math.cos(lat1);  // E-W line gives dPhi=0
+
+        var dLon = d*Math.sin(brng)/q;
+        // check for some daft bugger going past the pole, normalise latitude if so
+        if (Math.abs(lat2) > Math.PI/2) lat2 = lat2>0 ? Math.PI-lat2 : -(Math.PI-lat2);
+        lon2 = (lon1+dLon+Math.PI)%(2*Math.PI) - Math.PI;
+         */
+        double q, dLon;
+        //System.out.println(lat + " " + lon + " " + dist + " " + brng);
+        lat = Math.toRadians(lat);
+        lon = Math.toRadians(lon);
+        dist = dist/6371000; // angilar distanse (6371 km - Earth radius)
         
-        return new GeoCords (1d,1d);
+        double lat2 = lat + dist * Math.cos(brng);
+        //System.out.println(lat + " " + lat2);
+        double dLat = lat2 - lat;
+        double dPhi = Math.log(Math.tan(lat2 / 2 + Math.PI / 4) / Math.tan(lat / 2 + Math.PI / 4));
+        if (dPhi != 0) {
+            q = dLat / dPhi;
+        } else {
+            q = Math.cos(lat);
+        }
+        dLon = dist * Math.sin(brng) / q;
+        if (Math.abs(lat2) > Math.PI / 2) {
+            lat2 = lat2 > 0 ? Math.PI - lat2 : -(Math.PI - lat2);
+        }
+        double lon2 = (lon + dLon + Math.PI) % (2 * Math.PI) - Math.PI;
+
+        return new GeoCords(Math.toDegrees(lat2), Math.toDegrees(lon2));
     }
 }
 
@@ -148,8 +185,6 @@ public class App
             System.err.println("Error while converting string to int" + e);
             return 0;
         }
-
-
     }
 
     protected String splitDegrees(double coord) { // разложим градусы с десятыми на гр/мин/c
@@ -195,11 +230,25 @@ public class App
         return lonString;
     }
 
+    protected String getBoth(GeoCords coord) {
+        return getLat(coord.lat) + " " + getLon(coord.lon);
+    }
+
     protected String drawTaxiwayBorders(double startLat, double startLon, double endLat,
             double endLon, float width) {
-        System.out.println(Math.toDegrees(Trig.getBearing(startLat, startLon, endLat, endLon)) + "°");
+        double brng = Trig.getBearing(startLat, startLon, endLat, endLon);
+        String returnString = new String();
+        try {
+        returnString = "UUDD " + getBoth(Trig.getPoint(startLat, startLon, width / 2, (brng + Math.PI / 2))) + " " +
+                getBoth(Trig.getPoint(endLat, endLon, width / 2, (brng + Math.PI / 2))) + " taxiway" + "\n" +
+                "UUDD " + getBoth(Trig.getPoint(startLat, startLon, width / 2, (brng - Math.PI / 2))) + " " +
+                getBoth(Trig.getPoint(endLat, endLon, width / 2, (brng - Math.PI / 2))) + " taxiway";
 
-        return "";
+        } catch (Exception e) {
+            System.err.println("Error while tying to calculate taxyfay borders " + e);
+        }
+        return returnString;
+        
     }
 
     /** Start element. */
@@ -244,7 +293,7 @@ public class App
             System.out.println("UUDD " + getLat(TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat) + " " +
                     getLon(TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon) + " " +
                     getLat(TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat) + " " +
-                    getLon(TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon));
+                    getLon(TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon) + " taxi_center");
         }
 
         if (rawName.equals("TaxiwayPath") && // нарисуем рулежку
@@ -344,10 +393,7 @@ public class App
         System.out.println(argv[0]);
         if (argv.length == 0 ||
                 (argv.length == 1 && argv[0].equals("-help"))) {
-            System.out.println("\nUsage:  java App uri");
-            System.out.println("   where uri is the URI of your XML document.");
-            System.out.println("   Sample:  java App sonnet.xml");
-            System.out.println("\nEchoes SAX events back to the console.");
+            System.out.println("\nfsxsct");
             System.exit(1);
         }
         //java.text.DecimalFormatSymbols.setDecimalSeparator (".");
