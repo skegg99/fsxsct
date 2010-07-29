@@ -8,6 +8,10 @@ import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.helpers.DefaultHandler;
 
+/**
+ * basic geo coordinates class
+ *
+ */
 class GeoCords {
 
     double lat, lon;
@@ -19,15 +23,16 @@ class GeoCords {
 }
 
 /**
- * Класс содержит экземпляр точки РД
+ * tw point instance
  */
-class TaxiwayPoint { // конструктор
+class TaxiwayPoint {
 
     int index;
     taxiwayPointType type;
     taxiwayPointOrientation ori;
     double lat, lon;
 
+    // no one really need these enums for now. may need it later
     public enum taxiwayPointType {
 
         NORMAL, HOLD_SHORT, ILS_HOLD_SHORT
@@ -74,22 +79,29 @@ class TaxiwayPoint { // конструктор
     }
 }
 
+class TaxiwaySegment {
+
+    int start, end;
+    float width;
+    String name;
+
+    public TaxiwaySegment(int start, int end, float width, String name) {
+        this.start = start;
+        this.end = end;
+        this.width = width;
+        this.name = name;
+    }
+}
+
 /**
- * Этот класс у нас отвечает за разнообразную тригонометрическую хрень
- * всем методы статические
- * @author dagon
+ * Class, responsible for all kinds of geographocal calculations
+ * 
  */
 class Trig {
 
     /**
-     * Метод вычисляет истинный азимут из точки 1 в точку 2
-     * закомментированные фрагменты отвечают за вычисление этого расстояния - пока не надо
-     * вовращает угол в радианах
-     * @param startLat
-     * @param startLon
-     * @param endLat
-     * @param endLon
-     * @return
+     * loxodromy bearing calculation
+     * distance calculation is commented out - useless for now
      */
     public static float getBearing(double startLat, double startLon, double endLat, double endLon) {
         //double q;
@@ -98,49 +110,20 @@ class Trig {
         startLat = Math.toRadians(startLat);
         endLat = Math.toRadians(endLat);
         double dPhi = Math.log(Math.tan(endLat / 2 + Math.PI / 4) / Math.tan(startLat / 2 + Math.PI / 4));
-
-        /*if (dPhi != 0) {
-        q = dLat / dPhi;
-        } else {
-        q = Math.cos(startLat);
-        }
-        if (Math.abs(dLon) > Math.PI) {
-        dLon = dLon > 0 ? -(2 * Math.PI - dLon) : (2 * Math.PI + dLon);
-        }
-        //var d = Math.sqrt(dLat * dLat + q * q * dLon * dLon) * R;
-         */
         return Double.valueOf(Math.atan2(dLon, dPhi)).floatValue();
     }
 
     /**
-     * Метод возвращает кооринаты точки по исходной точке, азимуту и расстоянию
-     * азимут принимает в радианах
-     * @param lat
-     * @param lon
-     * @param dist
-     * @param brng
-     * @return
+     * coordinates calculation by start coordinates, bearing and distanse
      */
     public static GeoCords getPoint(double lat, double lon, float dist, double brng) {
 
-        /*
-         * lat2 = lat1 + d*Math.cos(brng);
-        var dPhi = Math.log(Math.tan(lat2/2+Math.PI/4)/Math.tan(lat1/2+Math.PI/4));
-        var q = (!isNaN(dLat/dPhi)) ? dLat/dPhi : Math.cos(lat1);  // E-W line gives dPhi=0
-
-        var dLon = d*Math.sin(brng)/q;
-        // check for some daft bugger going past the pole, normalise latitude if so
-        if (Math.abs(lat2) > Math.PI/2) lat2 = lat2>0 ? Math.PI-lat2 : -(Math.PI-lat2);
-        lon2 = (lon1+dLon+Math.PI)%(2*Math.PI) - Math.PI;
-         */
         double q, dLon;
-        //System.out.println(lat + " " + lon + " " + dist + " " + brng);
         lat = Math.toRadians(lat);
         lon = Math.toRadians(lon);
-        dist = dist/6371000; // angilar distanse (6371 km - Earth radius)
-        
+        dist = dist / 6371000; // angilar distanse (6371 km - Earth radius)
+
         double lat2 = lat + dist * Math.cos(brng);
-        //System.out.println(lat + " " + lat2);
         double dLat = lat2 - lat;
         double dPhi = Math.log(Math.tan(lat2 / 2 + Math.PI / 4) / Math.tan(lat / 2 + Math.PI / 4));
         if (dPhi != 0) {
@@ -153,7 +136,6 @@ class Trig {
             lat2 = lat2 > 0 ? Math.PI - lat2 : -(Math.PI - lat2);
         }
         double lon2 = (lon + dLon + Math.PI) % (2 * Math.PI) - Math.PI;
-
         return new GeoCords(Math.toDegrees(lat2), Math.toDegrees(lon2));
     }
 }
@@ -161,7 +143,10 @@ class Trig {
 public class App
         extends DefaultHandler {
 
-    List<TaxiwayPoint> TaxiwayPointsList = new ArrayList<TaxiwayPoint>(); // хэшсет, содержащий точки РД
+    List<TaxiwayPoint> taxiwayPointsList = new ArrayList<TaxiwayPoint>(); 
+    List<TaxiwaySegment> taxiwaySegmentsList = new ArrayList<TaxiwaySegment>(); 
+    int taxiwaySegmentCounter = 0;
+    Map<Integer, Set<Integer>> taxiwayPointIndex = new HashMap<Integer, Set<Integer>>(); //индекс отрезков для каждой точки
 
     public void parseURI(String uri) {
         try {
@@ -239,74 +224,81 @@ public class App
         double brng = Trig.getBearing(startLat, startLon, endLat, endLon);
         String returnString = new String();
         try {
-        returnString = "UUDD " + getBoth(Trig.getPoint(startLat, startLon, width / 2, (brng + Math.PI / 2))) + " " +
-                getBoth(Trig.getPoint(endLat, endLon, width / 2, (brng + Math.PI / 2))) + " taxiway" + "\n" +
-                "UUDD " + getBoth(Trig.getPoint(startLat, startLon, width / 2, (brng - Math.PI / 2))) + " " +
-                getBoth(Trig.getPoint(endLat, endLon, width / 2, (brng - Math.PI / 2))) + " taxiway";
+            returnString = "UUDD " + getBoth(Trig.getPoint(startLat, startLon, width / 2, (brng + Math.PI / 2))) + " " +
+                    getBoth(Trig.getPoint(endLat, endLon, width / 2, (brng + Math.PI / 2))) + " taxiway" + "\n" +
+                    "UUDD " + getBoth(Trig.getPoint(startLat, startLon, width / 2, (brng - Math.PI / 2))) + " " +
+                    getBoth(Trig.getPoint(endLat, endLon, width / 2, (brng - Math.PI / 2))) + " taxiway";
 
         } catch (Exception e) {
             System.err.println("Error while tying to calculate taxyfay borders " + e);
         }
         return returnString;
-        
+
     }
 
     /** Start element. */
     public void startElement(String namespaceURI, String localName,
             String rawName, Attributes attrs) {
-        if (rawName.equals("TaxiwayPoint")) { // разбираем точки, рисующие РД
 
-            /*
-            // вывод на консоль для отладки
+        // populating taxiwayPointsList arraylist with tw points data
+        if (rawName.equals("TaxiwayPoint")) {
             try {
-            System.out.print(Integer.parseInt(attrs.getValue("index")) + " " + attrs.getValue("type"));
-            System.out.println(" " + attrs.getValue("orientation") +
-            " lat " + attrs.getValue("lat") + " lon '" + attrs.getValue("lon") + "'");
-            //System.out.println ("test" + "'" + Float.valueOf(attrs.getValue("lat")).floatValue() + "'");
-            System.out.println("converted geo: " + Double.valueOf(attrs.getValue("lat")).doubleValue() +
-            " " + Double.valueOf(attrs.getValue("lon")).doubleValue());
-            System.out.println("enums: " + TaxiwayPoint.returnType(attrs.getValue("type")) +
-            TaxiwayPoint.returnOrientation(attrs.getValue("orientation")));
-            } catch (Exception e) {
-            System.err.println(e);
-            }
-             */
-
-            try {
-                TaxiwayPointsList.add(Integer.parseInt(attrs.getValue("index")),
+                taxiwayPointsList.add(Integer.parseInt(attrs.getValue("index")),
                         new TaxiwayPoint(Integer.parseInt(attrs.getValue("index")),
                         TaxiwayPoint.returnType(attrs.getValue("type")),
                         TaxiwayPoint.returnOrientation(attrs.getValue("orientation")),
                         Double.valueOf(attrs.getValue("lat")).doubleValue(),
                         Double.valueOf(attrs.getValue("lon")).doubleValue()));
-
             } catch (Exception e) {
                 System.err.println(e);
             }
-
         }
-
-        if (rawName.equals("TaxiwayPath") && // собственно трек для руления
+        // drawing tw centerline - this will be prbably rewritten later
+        if (rawName.equals("TaxiwayPath") &&
                 (attrs.getValue("type").equalsIgnoreCase("TAXI"))) {
-            // || (attrs.getValue("type").equalsIgnoreCase("PATH")))) // разбираем точки, рисующие РД
 
-            System.out.println("UUDD " + getLat(TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat) + " " +
-                    getLon(TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon) + " " +
-                    getLat(TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat) + " " +
-                    getLon(TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon) + " taxi_center");
+            System.out.println("UUDD " + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat) + " " +
+                    getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon) + " " +
+                    getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat) + " " +
+                    getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon) + " taxi_center");
         }
 
-        if (rawName.equals("TaxiwayPath") && // нарисуем рулежку
+        // collecting tw segments data
+        if (rawName.equals("TaxiwayPath") && // 
                 (attrs.getValue("type").equalsIgnoreCase("TAXI"))) {
-            System.out.println(drawTaxiwayBorders(
-                    TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat,
-                    TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon,
-                    TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat,
-                    TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon,
-                    Float.valueOf(attrs.getValue("width")).floatValue()));
+
+            // populating taxiwaySegmentsList arraylist with TW segments data
+            taxiwaySegmentsList.add(taxiwaySegmentCounter,
+                    new TaxiwaySegment(getAsInt(attrs.getValue("start")),
+                    getAsInt(attrs.getValue("end")),
+                    Float.valueOf(attrs.getValue("width")),
+                    attrs.getValue("name")));
+
+            // creating segment index by tw point for reference
+            Set l = taxiwayPointIndex.get(taxiwaySegmentCounter);
+            if (l == null) {
+                taxiwayPointIndex.put(taxiwaySegmentCounter, new HashSet<Integer>());
+            } else {
+                l.add(getAsInt(attrs.getValue("start")));
+                l.add(getAsInt(attrs.getValue("end")));
+                taxiwayPointIndex.put(taxiwaySegmentCounter, l);
+            }
+
+            // incrementing counter
+            taxiwaySegmentCounter++;
         }
+        /* simple tw border drawing - obsolete
+        if (rawName.equals("TaxiwayPath") && // 
+        (attrs.getValue("type").equalsIgnoreCase("TAXI"))) {
+        System.out.println(drawTaxiwayBorders(
+        TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat,
+        TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon,
+        TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat,
+        TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon,
+        Float.valueOf(attrs.getValue("width")).floatValue()));
+        }
+         */
     }
-
     /** Characters. */
     public void characters(char ch[], int start, int length) {
         //System.out.print(new String(ch, start, length));
@@ -327,7 +319,8 @@ public class App
 
     /** End document. */
     public void endDocument() {
-        // No need to do anything.
+        //
+        
     } // endDocument()
 
     /** Processing instruction. */
@@ -396,7 +389,6 @@ public class App
             System.out.println("\nfsxsct");
             System.exit(1);
         }
-        //java.text.DecimalFormatSymbols.setDecimalSeparator (".");
         App s1 = new App();
         s1.parseURI(argv[0]);
     } // main(String[])
