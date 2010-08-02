@@ -139,7 +139,7 @@ class Trig {
      * coordinates calculation by start coordinates, bearing and distanse
      */
     public static GeoCords getPoint(double lat, double lon, float dist, double brng) {
-
+        brng = to360(brng);
         double q, dLon;
         lat = Math.toRadians(lat);
         lon = Math.toRadians(lon);
@@ -159,6 +159,17 @@ class Trig {
         }
         double lon2 = (lon + dLon + Math.PI) % (2 * Math.PI) - Math.PI;
         return new GeoCords(Math.toDegrees(lat2), Math.toDegrees(lon2));
+    }
+
+    public static double getBackBearing(double brng) {
+        brng = brng >= Math.PI ? brng - Math.PI : brng + Math.PI;
+        return brng;
+    }
+
+    public static double to360(double brng) {
+        brng = brng >= Math.PI * 2 ? brng - Math.PI * 2 : brng;
+        brng = brng < 0 ? brng + Math.PI * 2 : brng;
+        return brng;
     }
 }
 
@@ -244,16 +255,16 @@ public class App
         return getLat(coord.lat) + " " + getLon(coord.lon);
     }
 
-    protected void getBorderRadialOffset(int thisPoint, int otherPoint) {
+    protected Double[] getBorderRadialOffset(int thisPoint, int otherPoint) {
         // need to know what other segments are originating or ending in this segment's point
         Set<Integer> otherSegments = taxiwayPointIndex.get(thisPoint);
-
-
+        int thisSegment = -1;
+        boolean isDirect;
         try {
             // this treemap cointains bearings from this point for all crossing segments, indexed by segment number
             // it is sorted by bearing by comparator
             Map<Integer, Double> bearingMap = new TreeMap<Integer, Double>();
-            ValueComparator comparatorB =  new ValueComparator(bearingMap);
+            ValueComparator comparatorB = new ValueComparator(bearingMap);
             // iterating through index numbers of all segments which are connected to this point
 
             Iterator<Integer> it2 = otherSegments.iterator();
@@ -261,7 +272,21 @@ public class App
                 int segmentCounter = it2.next(); //segment number
                 int segmentStart = taxiwaySegmentsList.get(segmentCounter).start;
                 int segmentEnd = taxiwaySegmentsList.get(segmentCounter).end;
-                System.out.print(segmentCounter + " ");
+                // determining current segment
+                if ((segmentStart == thisPoint && segmentEnd == otherPoint) ||
+                        (segmentStart == otherPoint && segmentEnd == thisPoint)) {
+                    thisSegment = segmentCounter;
+                }
+
+                if ((segmentStart == thisPoint && segmentEnd == otherPoint)) {
+                    isDirect = true;
+                }
+
+                if ((segmentStart == otherPoint && segmentEnd == thisPoint)) {
+                    isDirect = false;
+                }
+
+                //System.out.print(segmentCounter + " ");
                 // determine the point index on the outer end of segment
                 int outerPoint = thisPoint == segmentStart ? segmentEnd : segmentStart;
                 // get the bearing from this point to outer point
@@ -271,40 +296,86 @@ public class App
                         taxiwayPointsList.get(outerPoint).lat,
                         taxiwayPointsList.get(outerPoint).lon);
                 // put it to bearingMap
-                bearingMap.put(segmentCounter, segmentBearing);
+                bearingMap.put(segmentCounter, Trig.to360(segmentBearing));
             }
-            Map<Integer, Double> sortedBearingMap = new TreeMap<Integer, Double>(comparatorB);
+            TreeMap<Integer, Double> sortedBearingMap = new TreeMap<Integer, Double>(comparatorB);
             sortedBearingMap.putAll(bearingMap);
 
-            // some test to make sure our inintial segment is listed
+            // check if thisSegment was found
+            if (thisSegment == -1) {
+                System.out.println("EROOR: thisSegment not found for segment " +
+                        thisPoint + "---->" + otherPoint);
+            }
+            // processing of treemap
+            if (sortedBearingMap.size() > 2) { // at least two adjacent segments
+                // counterclockwize and clockwize adjacent segments RAD offset
+                double ccwSegment = sortedBearingMap.lowerKey(thisSegment) != null ? sortedBearingMap.lowerEntry(thisSegment).getValue() : sortedBearingMap.lastEntry().getValue();
+                double cwSegment = sortedBearingMap.higherKey(thisSegment) != null ? sortedBearingMap.higherEntry(thisSegment).getValue() : sortedBearingMap.firstEntry().getValue();
+                double thSegment = sortedBearingMap.get(thisSegment);
 
+                //double ccwOffset = (ccwSegment - thSegment) / 2;
 
-            System.out.println(sortedBearingMap);
+                return new Double[]{(Trig.to360(thSegment - ccwSegment)) / 2, Trig.to360((cwSegment - thSegment)) / 2};
+                //return new Double[]{Math.PI/6, Math.PI/6};
+            }
+
+            if (sortedBearingMap.size() == 2) {
+                // other segment number
+                double otherSegment = sortedBearingMap.lowerKey(thisSegment) != null ? sortedBearingMap.lowerEntry(thisSegment).getValue() : sortedBearingMap.lastEntry().getValue();
+                double thSegment = sortedBearingMap.get(thisSegment);
+                return new Double[]{(Trig.to360(thSegment - otherSegment)) / 2,
+                            (Trig.to360(otherSegment - thSegment)) / 2};
+                //return new Double[]{Math.PI/6, Math.PI/6};
+            }
+
+            //System.out.println(sortedBearingMap);
         } catch (Exception e) {
             System.err.println(e);
         }
+        // if it's a only segment to this point = 90deg
+        return new Double[]{-Math.PI / 2, Math.PI / 2};
+    }
 
-        //return new GeoCords[2];
-        }
+    protected String drawTaxiwayBorders(TaxiwaySegment thisSegment) {
+        double startLat = taxiwayPointsList.get(thisSegment.start).lat;
+        double startLon = taxiwayPointsList.get(thisSegment.start).lon;
+        double endLat = taxiwayPointsList.get(thisSegment.end).lat;
+        double endLon = taxiwayPointsList.get(thisSegment.end).lon;
+        float width = thisSegment.width;
+        double brng = Trig.getBearing(
+                taxiwayPointsList.get(thisSegment.start).lat,
+                taxiwayPointsList.get(thisSegment.start).lon,
+                taxiwayPointsList.get(thisSegment.end).lat,
+                taxiwayPointsList.get(thisSegment.end).lon);
 
-    protected String drawTaxiwayBorders(double startLat, double startLon, double endLat,
-            double endLon, float width) {
-        double brng = Trig.getBearing(startLat, startLon, endLat, endLon);
-        // need to know what other segments are originating or ending in this segment's points
+        Double[] offsetStart = getBorderRadialOffset(thisSegment.start, thisSegment.end);
+        Double[] offsetEnd = getBorderRadialOffset(thisSegment.end, thisSegment.start);
 
-        /*
+        double ang1 = Trig.getBackBearing(brng) - offsetStart[0];
+        double ang2 = brng + offsetEnd[1];
+        double ang3 = Trig.getBackBearing(brng) + offsetStart[1];
+        double ang4 = brng - offsetEnd[0];
+
+        float dist1 = Double.valueOf((width / 2) / Math.sin(offsetStart[0])).floatValue();
+        float dist2 = Double.valueOf((width / 2) / Math.sin(offsetEnd[1])).floatValue();
+        float dist3 = Double.valueOf((width / 2) / Math.sin(offsetStart[1])).floatValue();
+        float dist4 = Double.valueOf((width / 2) / Math.sin(offsetEnd[0])).floatValue();
+
+        //System.out.println(offsetStart[0] + " " + offsetStart[1]);
         String returnString = new String();
         try {
-        returnString = "UUDD " + getBoth(Trig.getPoint(startLat, startLon, width / 2, (brng + Math.PI / 2))) + " " +
-        getBoth(Trig.getPoint(endLat, endLon, width / 2, (brng + Math.PI / 2))) + " taxiway" + "\n" +
-        "UUDD " + getBoth(Trig.getPoint(startLat, startLon, width / 2, (brng - Math.PI / 2))) + " " +
-        getBoth(Trig.getPoint(endLat, endLon, width / 2, (brng - Math.PI / 2))) + " taxiway";
+            returnString =
+                    "UUDD " +
+                    getBoth(Trig.getPoint(startLat, startLon, dist1, ang1)) + " " +
+                    getBoth(Trig.getPoint(endLat, endLon, dist2, ang2)) + " taxiway" + "\n" +
+                    "UUDD " +
+                    getBoth(Trig.getPoint(startLat, startLon, dist3, ang3)) + " " +
+                    getBoth(Trig.getPoint(endLat, endLon, dist4, ang4)) + " taxiway";
 
         } catch (Exception e) {
-        System.err.println("Error while tying to calculate taxyfay borders " + e);
+            System.err.println("Error while trying to calculate taxyway borders " + e);
         }
-         */
-        return "";
+        return returnString;
 
     }
 
@@ -317,7 +388,7 @@ public class App
             // thisTWS.start and thisTWS.end will contain this tw segment points
             TaxiwaySegment thisTWS = it.next();
 
-            getBorderRadialOffset(thisTWS.start, thisTWS.end);
+            System.out.println(drawTaxiwayBorders(thisTWS));
         }
 
     } // endDocument()
