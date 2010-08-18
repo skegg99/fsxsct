@@ -38,6 +38,9 @@ class GeoCords {
 
     double lat, lon;
 
+    public GeoCords() {
+    }
+
     public GeoCords(double lat, double lon) {
         this.lat = lat;
         this.lon = lon;
@@ -107,6 +110,9 @@ class TaxiwaySegment {
     float width;
     String name;
 
+    public TaxiwaySegment() {
+    }
+
     public TaxiwaySegment(int start, int end, float width, String name) {
         this.start = start;
         this.end = end;
@@ -171,6 +177,72 @@ class Trig {
         brng = brng < 0 ? brng + Math.PI * 2 : brng;
         return brng;
     }
+
+    /**
+     *  calculates intersection (coords) of two paths given coords on bearing
+     */
+    public static GeoCords getIntersectionCoords(GeoCords p1, double brng1, GeoCords p2, double brng2) {
+        double lat1 = Math.toRadians(p1.lat);
+        double lon1 = Math.toRadians(p1.lon);
+        double lat2 = Math.toRadians(p2.lat);
+        double lon2 = Math.toRadians(p2.lon);
+        double brng13 = brng1;
+        double brng23 = brng2;
+        double dLat = lat2 - lat1;
+        double dLon = lon2 - lon1;
+
+        double dist12 = 2 * Math.asin(Math.sqrt(Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)));
+        if (dist12 == 0) {
+            return null;
+        }
+
+        // initial/final bearings between points
+        double brngA = Math.acos((Math.sin(lat2) - Math.sin(lat1) * Math.cos(dist12))
+                / (Math.sin(dist12) * Math.cos(lat1)));
+        if (Double.isNaN(brngA)) {
+            brngA = 0;  // protect against rounding
+        }
+        double brngB = Math.acos((Math.sin(lat1) - Math.sin(lat2) * Math.cos(dist12))
+                / (Math.sin(dist12) * Math.cos(lat2)));
+
+        double brng12, brng21;
+        if (Math.sin(lon2 - lon1) > 0) {
+            brng12 = brngA;
+            brng21 = 2 * Math.PI - brngB;
+        } else {
+            brng12 = 2 * Math.PI - brngA;
+            brng21 = brngB;
+        }
+
+        double alpha1 = (brng13 - brng12 + Math.PI) % (2 * Math.PI) - Math.PI;  // angle 2-1-3
+        double alpha2 = (brng21 - brng23 + Math.PI) % (2 * Math.PI) - Math.PI;  // angle 1-2-3
+
+        if (Math.sin(alpha1) == 0 && Math.sin(alpha2) == 0) {
+
+            return null;  // infinite intersections
+        }
+        if (Math.sin(alpha1) * Math.sin(alpha2) < 0) {
+
+            return null;       // ambiguous intersection
+        }
+        //alpha1 = Math.abs(alpha1);
+        //alpha2 = Math.abs(alpha2);
+        // ... Ed Williams takes abs of alpha1/alpha2, but seems to break calculation?
+
+        double alpha3 = Math.acos(-Math.cos(alpha1) * Math.cos(alpha2)
+                + Math.sin(alpha1) * Math.sin(alpha2) * Math.cos(dist12));
+        double dist13 = Math.atan2(Math.sin(dist12) * Math.sin(alpha1) * Math.sin(alpha2),
+                Math.cos(alpha2) + Math.cos(alpha1) * Math.cos(alpha3));
+        double lat3 = Math.asin(Math.sin(lat1) * Math.cos(dist13)
+                + Math.cos(lat1) * Math.sin(dist13) * Math.cos(brng13));
+        double dLon13 = Math.atan2(Math.sin(brng13) * Math.sin(dist13) * Math.cos(lat1),
+                Math.cos(dist13) - Math.sin(lat1) * Math.sin(lat3));
+        double lon3 = lon1 + dLon13;
+        lon3 = (lon3 + Math.PI) % (2 * Math.PI) - Math.PI;  // normalise to -180..180?
+
+        return new GeoCords(Math.toDegrees(lat3), Math.toDegrees(lon3));
+    }
 }
 
 public class App
@@ -194,7 +266,7 @@ public class App
     /** Start document. */
     public void startDocument() {
         //System.out.println("<?xml version=\"1.0\"?>");
-        } // startDocument()
+    } // startDocument()
 
     protected int getAsInt(String s) {
         try {
@@ -273,8 +345,8 @@ public class App
                 int segmentStart = taxiwaySegmentsList.get(segmentCounter).start;
                 int segmentEnd = taxiwaySegmentsList.get(segmentCounter).end;
                 // determining current segment
-                if ((segmentStart == thisPoint && segmentEnd == otherPoint) ||
-                        (segmentStart == otherPoint && segmentEnd == thisPoint)) {
+                if ((segmentStart == thisPoint && segmentEnd == otherPoint)
+                        || (segmentStart == otherPoint && segmentEnd == thisPoint)) {
                     thisSegment = segmentCounter;
                 }
 
@@ -303,34 +375,143 @@ public class App
 
             // check if thisSegment was found
             if (thisSegment == -1) {
-                System.out.println("EROOR: thisSegment not found for segment " +
-                        thisPoint + "---->" + otherPoint);
+                System.out.println("ERROR: thisSegment not found for segment "
+                        + thisPoint + "---->" + otherPoint);
             }
-            // processing of treemap
-            if (sortedBearingMap.size() > 2) { // at least two adjacent segments
+            // processing the treemap
+            if (sortedBearingMap.size() >= 2) { // at least two adjacent segments
                 // counterclockwize and clockwize adjacent segments RAD offset
                 double ccwSegment = sortedBearingMap.lowerKey(thisSegment) != null ? sortedBearingMap.lowerEntry(thisSegment).getValue() : sortedBearingMap.lastEntry().getValue();
                 double cwSegment = sortedBearingMap.higherKey(thisSegment) != null ? sortedBearingMap.higherEntry(thisSegment).getValue() : sortedBearingMap.firstEntry().getValue();
                 double thSegment = sortedBearingMap.get(thisSegment);
 
-                //double ccwOffset = (ccwSegment - thSegment) / 2;
+                // corresponding segment id and width as we need to adjust angle if segments are of different width
+                TaxiwaySegment ccwSegmentId = new TaxiwaySegment();
+                TaxiwaySegment cwSegmentId = new TaxiwaySegment();
+                TaxiwaySegment thSegmentId = new TaxiwaySegment();
+                try {
+                    ccwSegmentId = sortedBearingMap.lowerKey(thisSegment) != null
+                            ? taxiwaySegmentsList.get(sortedBearingMap.lowerEntry(thisSegment).getKey())
+                            : taxiwaySegmentsList.get(sortedBearingMap.lastEntry().getKey());
 
-                return new Double[]{(Trig.to360(thSegment - ccwSegment)) / 2, Trig.to360((cwSegment - thSegment)) / 2};
-                //return new Double[]{Math.PI/6, Math.PI/6};
+                    cwSegmentId = sortedBearingMap.higherKey(thisSegment) != null
+                            ? taxiwaySegmentsList.get(sortedBearingMap.higherEntry(thisSegment).getKey())
+                            : taxiwaySegmentsList.get(sortedBearingMap.firstEntry().getKey());
+
+                    thSegmentId = taxiwaySegmentsList.get(thisSegment);
+                } catch (Exception e) {
+
+                    System.err.println("Error while getting segmentID: " + e);
+                }
+
+                float ccwSegmentWidth = ccwSegmentId.width;
+                float cwSegmentWidth = cwSegmentId.width;
+                float thSegmentWidth = thSegmentId.width;
+
+                // so if segments are of same width we just use a bisection, that will do
+                if (ccwSegmentWidth == thSegmentWidth && cwSegmentWidth == thSegmentWidth) {
+                    return new Double[]{(Trig.to360(thSegment - ccwSegment)) / 2, Trig.to360((cwSegment - thSegment)) / 2};
+                }
+
+                // on the other hand if width is different we need a workaround
+                // we will be finding coords or crosspoint for tw borders, then calculate the bearing to return
+
+                // first we will determine each segments outer point
+                int ccwSegmentOuterPoint = 0;
+                int cwSegmentOuterPoint = 0;
+                int thSegmentOuterPoint = 0;
+                try {
+                    ccwSegmentOuterPoint = thisPoint == ccwSegmentId.start ? ccwSegmentId.end : ccwSegmentId.start;
+                    cwSegmentOuterPoint = thisPoint == cwSegmentId.start ? cwSegmentId.end : cwSegmentId.start;
+                    thSegmentOuterPoint = thisPoint == thSegmentId.start ? thSegmentId.end : thSegmentId.start;
+                } catch (Exception e) {
+
+                    System.err.println("Error while calculating outerpoint: " + e);
+                }
+                // next for each segment we will find a point to start border path
+                // for thisSegment there will be 2 points -
+                // one adjasent to ccw and one - to cw segments
+                GeoCords thSegmentOuterBorderStartForCcw = new GeoCords();
+                GeoCords thSegmentOuterBorderStartForCw = new GeoCords();
+                GeoCords ccwSegmentOuterBorderStart = new GeoCords();
+                GeoCords cwSegmentOuterBorderStart = new GeoCords();
+
+                thSegmentOuterBorderStartForCcw = Trig.getPoint(
+                        taxiwayPointsList.get(thSegmentOuterPoint).lat,
+                        taxiwayPointsList.get(thSegmentOuterPoint).lon,
+                        thSegmentWidth,
+                        thSegment - Math.PI / 2);
+
+                thSegmentOuterBorderStartForCw = Trig.getPoint(
+                        taxiwayPointsList.get(thSegmentOuterPoint).lat,
+                        taxiwayPointsList.get(thSegmentOuterPoint).lon,
+                        thSegmentWidth,
+                        thSegment + Math.PI / 2);
+
+                ccwSegmentOuterBorderStart = Trig.getPoint(
+                        taxiwayPointsList.get(ccwSegmentOuterPoint).lat,
+                        taxiwayPointsList.get(ccwSegmentOuterPoint).lon,
+                        ccwSegmentWidth,
+                        ccwSegment + Math.PI / 2);
+
+                cwSegmentOuterBorderStart = Trig.getPoint(
+                        taxiwayPointsList.get(cwSegmentOuterPoint).lat,
+                        taxiwayPointsList.get(cwSegmentOuterPoint).lon,
+                        cwSegmentWidth,
+                        cwSegment - Math.PI / 2);
+
+                // now we will calculate intersection points for tw border
+                // via getIntersectionCoords method
+
+                GeoCords ccwIntersection = Trig.getIntersectionCoords(
+                        thSegmentOuterBorderStartForCcw,
+                        Trig.getBackBearing(thSegment),
+                        ccwSegmentOuterBorderStart,
+                        Trig.getBackBearing(ccwSegment));
+                GeoCords cwIntersection = Trig.getIntersectionCoords(
+                        thSegmentOuterBorderStartForCw,
+                        Trig.getBackBearing(thSegment),
+                        cwSegmentOuterBorderStart,
+                        Trig.getBackBearing(cwSegment));
+
+                try {
+                    if (cwIntersection != null && ccwIntersection != null) {
+                        Double[] toReturn = new Double[]{thSegment - Double.valueOf(Trig.getBearing(
+                            taxiwayPointsList.get(thisPoint).lat,
+                            taxiwayPointsList.get(thisPoint).lon,
+                            ccwIntersection.lat,
+                            ccwIntersection.lon)).floatValue(),
+                            Double.valueOf(Trig.getBearing(
+                            taxiwayPointsList.get(thisPoint).lat,
+                            taxiwayPointsList.get(thisPoint).lon,
+                            cwIntersection.lat,
+                            cwIntersection.lon)).floatValue() - thSegment};
+
+                        return toReturn;
+                    }
+                } catch (Exception e) {
+
+                    System.err.println("Error while trying to calculate bearing and return it: " + e);
+                    System.err.println(cwIntersection.lat
+                            + cwIntersection.lon);
+                }
             }
 
+            /*
             if (sortedBearingMap.size() == 2) {
-                // other segment number
-                double otherSegment = sortedBearingMap.lowerKey(thisSegment) != null ? sortedBearingMap.lowerEntry(thisSegment).getValue() : sortedBearingMap.lastEntry().getValue();
-                double thSegment = sortedBearingMap.get(thisSegment);
-                return new Double[]{(Trig.to360(thSegment - otherSegment)) / 2,
-                            (Trig.to360(otherSegment - thSegment)) / 2};
-                //return new Double[]{Math.PI/6, Math.PI/6};
+            // other segment number
+            double otherSegment = sortedBearingMap.lowerKey(thisSegment) != null ? sortedBearingMap.lowerEntry(thisSegment).getValue() : sortedBearingMap.lastEntry().getValue();
+            double thSegment = sortedBearingMap.get(thisSegment);
+            return new Double[]{(Trig.to360(thSegment - otherSegment)) / 2,
+            (Trig.to360(otherSegment - thSegment)) / 2};
+            //return new Double[]{Math.PI/6, Math.PI/6};
             }
+             */
 
             //System.out.println(sortedBearingMap);
         } catch (Exception e) {
-            System.err.println(e);
+
+            System.err.println("Error while trying to calculate border RAD offset: " + e);
         }
         // if it's a only segment to this point = 90deg
         return new Double[]{-Math.PI / 2, Math.PI / 2};
@@ -365,12 +546,12 @@ public class App
         String returnString = new String();
         try {
             returnString =
-                    "UUDD " +
-                    getBoth(Trig.getPoint(startLat, startLon, dist1, ang1)) + " " +
-                    getBoth(Trig.getPoint(endLat, endLon, dist2, ang2)) + " taxiway" + "\n" +
-                    "UUDD " +
-                    getBoth(Trig.getPoint(startLat, startLon, dist3, ang3)) + " " +
-                    getBoth(Trig.getPoint(endLat, endLon, dist4, ang4)) + " taxiway";
+                    "UUDD "
+                    + getBoth(Trig.getPoint(startLat, startLon, dist1, ang1)) + " "
+                    + getBoth(Trig.getPoint(endLat, endLon, dist2, ang2)) + " taxiway" + "\n"
+                    + "UUDD "
+                    + getBoth(Trig.getPoint(startLat, startLon, dist3, ang3)) + " "
+                    + getBoth(Trig.getPoint(endLat, endLon, dist4, ang4)) + " taxiway";
 
         } catch (Exception e) {
             System.err.println("Error while trying to calculate taxyway borders " + e);
@@ -411,13 +592,13 @@ public class App
             }
         }
         // drawing tw centerline - this will be prbably rewritten later
-        if (rawName.equals("TaxiwayPath") &&
-                (attrs.getValue("type").equalsIgnoreCase("TAXI"))) {
+        if (rawName.equals("TaxiwayPath")
+                && (attrs.getValue("type").equalsIgnoreCase("TAXI"))) {
 
-            System.out.println("UUDD " + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat) + " " +
-                    getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon) + " " +
-                    getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat) + " " +
-                    getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon) + " taxi_center");
+            System.out.println("UUDD " + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat) + " "
+                    + getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon) + " "
+                    + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat) + " "
+                    + getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon) + " taxi_center");
         }
 
         // collecting tw segments data
@@ -468,12 +649,12 @@ public class App
     /** Characters. */
     public void characters(char ch[], int start, int length) {
         //System.out.print(new String(ch, start, length));
-        } // characters(char[],int,int);
+    } // characters(char[],int,int);
 
     /** Ignorable whitespace. */
     public void ignorableWhitespace(char ch[], int start, int length) {
         //characters(ch, start, length);
-        } // ignorableWhitespace(char[],int,int);
+    } // ignorableWhitespace(char[],int,int);
 
     /** End element. */
     public void endElement(String namespaceURI, String localName,
@@ -481,7 +662,7 @@ public class App
         //System.out.print("</");
         //System.out.print(rawName);
         //System.out.print(">");
-        } // endElement(String)
+    } // endElement(String)
 
     /** Processing instruction. */
     public void processingInstruction(String target, String data) {
@@ -500,24 +681,24 @@ public class App
     //
     /** Warning. */
     public void warning(SAXParseException ex) {
-        System.err.println("[Warning] " +
-                getLocationString(ex) + ": " +
-                ex.getMessage());
+        System.err.println("[Warning] "
+                + getLocationString(ex) + ": "
+                + ex.getMessage());
     }
 
     /** Error. */
     public void error(SAXParseException ex) {
-        System.err.println("[Error] " +
-                getLocationString(ex) + ": " +
-                ex.getMessage());
+        System.err.println("[Error] "
+                + getLocationString(ex) + ": "
+                + ex.getMessage());
     }
 
     /** Fatal error. */
     public void fatalError(SAXParseException ex)
             throws SAXException {
-        System.err.println("[Fatal Error] " +
-                getLocationString(ex) + ": " +
-                ex.getMessage());
+        System.err.println("[Fatal Error] "
+                + getLocationString(ex) + ": "
+                + ex.getMessage());
         throw ex;
     }
 
@@ -544,12 +725,12 @@ public class App
     /** Main program entry point. */
     public static void main(String argv[]) {
         System.out.println(argv[0]);
-        if (argv.length == 0 ||
-                (argv.length == 1 && argv[0].equals("-help"))) {
+        if (argv.length == 0
+                || (argv.length == 1 && argv[0].equals("-help"))) {
             System.out.println("\nfsxsct");
             System.exit(1);
         }
         App s1 = new App();
         s1.parseURI(argv[0]);
     } // main(String[])
-    }
+}
