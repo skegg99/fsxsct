@@ -2,7 +2,6 @@
  * To change this template, choose Tools | Templates
  * and open the template in the editor.
  */
-
 package su.avsim.fsxsct;
 
 /**
@@ -50,10 +49,21 @@ class Trig {
         double lon2 = (lon + dLon + Math.PI) % (2 * Math.PI) - Math.PI;
         return new GeoCords(Math.toDegrees(lat2), Math.toDegrees(lon2));
     }
+    // and an overloaded version with geocords
+    public static GeoCords getPoint(GeoCords geo, float dist, double brng) {
+        return getPoint(geo.lat, geo.lon, dist, brng);
+    }
 
+    //backtrack bearing
     public static double getBackBearing(double brng) {
         brng = brng >= Math.PI ? brng - Math.PI : brng + Math.PI;
         return brng;
+    }
+
+    //backtrack rw number
+    public static String getBacktrackRW(String brng) {
+        return Integer.toString(
+                Double.valueOf(Math.toDegrees(getBackBearing(Math.toRadians(Double.parseDouble(brng) * 10)) / 10)).intValue());
     }
 
     public static double to360(double brng) {

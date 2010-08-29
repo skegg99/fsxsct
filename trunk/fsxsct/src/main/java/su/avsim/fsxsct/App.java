@@ -1,5 +1,11 @@
 package su.avsim.fsxsct;
 
+import java.io.PrintStream;
+import java.io.FileOutputStream;
+import java.io.FileNotFoundException;
+
+
+
 import java.util.*;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
@@ -14,10 +20,19 @@ public class App
     List<TaxiwayPoint> taxiwayPointsList = new ArrayList<TaxiwayPoint>();
     List<TaxiwaySegment> taxiwaySegmentsList = new ArrayList<TaxiwaySegment>();
     int taxiwaySegmentCounter = 0;
+    // tw segments index indexed by point
+    Map<Integer, Set<Integer>> taxiwayPointIndex = new HashMap<Integer, Set<Integer>>();
+    String ident = new String(); // airport icao ident form airport section
+    String name = new String(); // airport name form airport section
+    boolean geoPrinted = false; // we should print [GEO] only once
+    //all runways as a collection of RunWay objects
+    List<Runway> runwayList = new ArrayList<Runway>();
+    // this is previous point while drawins apron
+    GeoCords lastVertex = new GeoCords();
+    // this si first point of apron that was started with, should be closed with very last point
+    GeoCords firstVertex = new GeoCords();
+    boolean apron = false;
 
-    
-    // tw segments index indexed by poin
-    Map<Integer, Set<Integer>> taxiwayPointIndex = new HashMap<Integer, Set<Integer>>(); 
     public void parseURI(String uri) {
         try {
             SAXParserFactory spf = SAXParserFactory.newInstance();
@@ -42,7 +57,8 @@ public class App
         }
     }
 
-    protected String splitDegrees(double coord) { // разложим градусы с десятыми на гр/мин/c
+    // degrees to dms
+    protected String splitDegrees(double coord) {
         String coordString = new String();
         try {
             double degrees = Math.floor(coord);
@@ -52,7 +68,7 @@ public class App
             // используем американскую локаль, чтобы десятые отделялись точкой
             coordString = String.format(Locale.US, "%1$03.0f.%2$02.0f.%3$06.3f", degrees, minutes, seconds);
         } catch (Exception e) {
-            System.err.println("Ошибка при переводе координаты " + coordString + " " + e);
+            System.err.println("Error while translating deg.deg to dms " + coordString + " " + e);
         }
 
         return coordString;
@@ -262,18 +278,6 @@ public class App
                 }
             }
 
-            /*
-            if (sortedBearingMap.size() == 2) {
-            // other segment number
-            double otherSegment = sortedBearingMap.lowerKey(thisSegment) != null ? sortedBearingMap.lowerEntry(thisSegment).getValue() : sortedBearingMap.lastEntry().getValue();
-            double thSegment = sortedBearingMap.get(thisSegment);
-            return new Double[]{(Trig.to360(thSegment - otherSegment)) / 2,
-            (Trig.to360(otherSegment - thSegment)) / 2};
-            //return new Double[]{Math.PI/6, Math.PI/6};
-            }
-             */
-
-            //System.out.println(sortedBearingMap);
         } catch (Exception e) {
 
             System.err.println("Error while trying to calculate border RAD offset: " + e);
@@ -311,10 +315,10 @@ public class App
         String returnString = new String();
         try {
             returnString =
-                    "UUDD "
+                    ident + " "
                     + getBoth(Trig.getPoint(startLat, startLon, dist1, ang1)) + " "
                     + getBoth(Trig.getPoint(endLat, endLon, dist2, ang2)) + " taxiway" + "\n"
-                    + "UUDD "
+                    + ident + " "
                     + getBoth(Trig.getPoint(startLat, startLon, dist3, ang3)) + " "
                     + getBoth(Trig.getPoint(endLat, endLon, dist4, ang4)) + " taxiway";
 
@@ -325,16 +329,49 @@ public class App
 
     }
 
+    public String drawRunwayBorders() {
+        // will iterate through runways
+        try {
+            Iterator<Runway> rws = runwayList.iterator();
+            while (rws.hasNext()) {
+                Runway rw = rws.next();
+                GeoCords s1 = Trig.getPoint(rw.start, (float) rw.width / 2, Math.toRadians(rw.heading) + Math.PI / 2);
+                GeoCords s2 = Trig.getPoint(rw.start, (float) rw.width / 2, Math.toRadians(rw.heading) - Math.PI / 2);
+                GeoCords e1 = Trig.getPoint(rw.end, (float) rw.width / 2, Math.toRadians(rw.heading) + Math.PI / 2);
+                GeoCords e2 = Trig.getPoint(rw.end, (float) rw.width / 2, Math.toRadians(rw.heading) - Math.PI / 2);
+
+                System.out.println(ident + " "
+                        + getBoth(s1) + " " + getBoth(e1) + " runway");
+                System.out.println(ident + " "
+                        + getBoth(e1) + " " + getBoth(e2) + " runway");
+                System.out.println(ident + " "
+                        + getBoth(e2) + " " + getBoth(s2) + " runway");
+                System.out.println(ident + " "
+                        + getBoth(s2) + " " + getBoth(s1) + " runway");
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error in drawRunwayBorders " + e);
+        }
+        return new String();
+    }
+
     /** End document. */
     public void endDocument() {
         // will now iterate through tw segments
-        Iterator<TaxiwaySegment> it = taxiwaySegmentsList.iterator();
+        try {
+            Iterator<TaxiwaySegment> it = taxiwaySegmentsList.iterator();
 
-        while (it.hasNext()) {
-            // thisTWS.start and thisTWS.end will contain this tw segment points
-            TaxiwaySegment thisTWS = it.next();
+            while (it.hasNext()) {
+                // thisTWS.start and thisTWS.end will contain this tw segment points
+                TaxiwaySegment thisTWS = it.next();
 
-            System.out.println(drawTaxiwayBorders(thisTWS));
+                System.out.println(drawTaxiwayBorders(thisTWS));
+
+            }
+            System.out.println(drawRunwayBorders());
+        } catch (Exception e) {
+            System.err.println("end document error " + e);
         }
 
     } // endDocument()
@@ -343,8 +380,70 @@ public class App
     public void startElement(String namespaceURI, String localName,
             String rawName, Attributes attrs) {
 
+        //info and airport sections
+        if (rawName.equals("Airport")) {
+            ident = attrs.getValue("ident");
+            name = attrs.getValue("name");
+            System.out.println("[INFO]");
+            System.out.println(attrs.getValue("ident"));
+            System.out.println(attrs.getValue("ident") + "_CTR");
+            System.out.println(attrs.getValue("ident"));
+            System.out.println(getLat(Double.valueOf(attrs.getValue("lat")).doubleValue()));
+            System.out.println(getLon(Double.valueOf(attrs.getValue("lon")).doubleValue()));
+            System.out.println("60\n20");
+            System.out.println(attrs.getValue("magvar"));
+            System.out.println("1.000000\n");
+            System.out.println("[Airport]");
+            System.out.println(attrs.getValue("ident") + " 000.000 "
+                    + getLat(Double.valueOf(attrs.getValue("lat")).doubleValue()) + " "
+                    + getLon(Double.valueOf(attrs.getValue("lon")).doubleValue()) + " A ; "
+                    + attrs.getValue("name") + "\n");
+            System.out.println("[Runway]");
+
+        }
+
+        // runway
+        if (rawName.equals("Runway")) {
+            // direct rw number
+            System.out.print(attrs.getValue("number") + " ");
+            // backtrack rw number
+            System.out.print(Trig.getBacktrackRW(attrs.getValue("number")) + " ");
+            System.out.print(Double.valueOf(attrs.getValue("heading")).intValue() + " ");
+            System.out.print(Double.valueOf(Math.toDegrees(Trig.getBackBearing(
+                    Math.toRadians(Double.parseDouble(attrs.getValue("heading")))))).intValue() + " ");
+            // will determint start and end of rw
+            double rwCenterLat = Double.valueOf(attrs.getValue("lat")).doubleValue();
+            double rwCenterLon = Double.valueOf(attrs.getValue("lon")).doubleValue();
+            double rwLength = (Double.valueOf(attrs.getValue("length")).doubleValue());
+
+
+            GeoCords rwStart = Trig.getPoint(rwCenterLat,
+                    rwCenterLon,
+                    (float) rwLength / 2,
+                    Math.toRadians(Double.valueOf(attrs.getValue("heading")).doubleValue()));
+
+            GeoCords rwEnd = Trig.getPoint(rwCenterLat,
+                    rwCenterLon,
+                    (float) rwLength / 2,
+                    Double.valueOf((Trig.getBackBearing(
+                    Math.toRadians(Double.parseDouble(attrs.getValue("heading")))))).doubleValue());
+
+            System.out.println(getBoth(rwStart) + " " + getBoth(rwEnd) + " " + ident + " " + name);
+            // we will also add runway data to runwayList
+            runwayList.add(new Runway(rwStart, rwEnd, rwLength,
+                    (Double.valueOf(attrs.getValue("width")).doubleValue()), //width
+                    Double.parseDouble(attrs.getValue("heading")), //heading
+                    attrs.getValue("number"),
+                    attrs.getValue("primaryDesignator"),
+                    attrs.getValue("secondaryDesignator")));
+        }
+
         // populating taxiwayPointsList arraylist with tw points data
         if (rawName.equals("TaxiwayPoint")) {
+            if (!geoPrinted) {
+                System.out.println("\n[GEO]");
+                geoPrinted = true;
+            }
             try {
                 taxiwayPointsList.add(Integer.parseInt(attrs.getValue("index")),
                         new TaxiwayPoint(Integer.parseInt(attrs.getValue("index")),
@@ -353,14 +452,23 @@ public class App
                         Double.valueOf(attrs.getValue("lat")).doubleValue(),
                         Double.valueOf(attrs.getValue("lon")).doubleValue()));
             } catch (Exception e) {
-                System.err.println(e);
+                System.err.println("taxiwayPointsList " + e);
             }
         }
         // drawing tw centerline - this will be prbably rewritten later
         if (rawName.equals("TaxiwayPath")
                 && (attrs.getValue("type").equalsIgnoreCase("TAXI"))) {
 
-            System.out.println("UUDD " + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat) + " "
+            System.out.println(ident + " " + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat) + " "
+                    + getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon) + " "
+                    + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat) + " "
+                    + getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon) + " taxi_center");
+        }
+
+        if (rawName.equals("TaxiwayPath")
+                && (attrs.getValue("type").equalsIgnoreCase("PATH"))) {
+
+            System.out.println(ident + " " + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat) + " "
                     + getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon) + " "
                     + getLat(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat) + " "
                     + getLon(taxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon) + " taxi_center");
@@ -368,46 +476,90 @@ public class App
 
         // collecting tw segments data
         if (rawName.equals("TaxiwayPath") && //
-                (attrs.getValue("type").equalsIgnoreCase("TAXI"))) {
+                ((attrs.getValue("type").equalsIgnoreCase("TAXI"))
+                || (attrs.getValue("type").equalsIgnoreCase("RUNWAY")))) {
+            try {
+                // populating taxiwaySegmentsList arraylist with TW segments data
+                taxiwaySegmentsList.add(taxiwaySegmentCounter,
+                        new TaxiwaySegment(getAsInt(attrs.getValue("start")),
+                        getAsInt(attrs.getValue("end")),
+                        Float.valueOf(attrs.getValue("width")),
+                        attrs.getValue("name"),
+                        attrs.getValue("type")));
 
-            // populating taxiwaySegmentsList arraylist with TW segments data
-            taxiwaySegmentsList.add(taxiwaySegmentCounter,
-                    new TaxiwaySegment(getAsInt(attrs.getValue("start")),
-                    getAsInt(attrs.getValue("end")),
-                    Float.valueOf(attrs.getValue("width")),
-                    attrs.getValue("name")));
+                // creating segment index by tw point for reference
+                Set l = taxiwayPointIndex.get(getAsInt(attrs.getValue("start")));
+                if (l == null) {
+                    taxiwayPointIndex.put(getAsInt(attrs.getValue("start")), l = new HashSet<Integer>());
+                }
+                l.add(taxiwaySegmentCounter);
+                taxiwayPointIndex.put(getAsInt(attrs.getValue("start")), l);
 
-            // creating segment index by tw point for reference
-            Set l = taxiwayPointIndex.get(getAsInt(attrs.getValue("start")));
-            if (l == null) {
-                taxiwayPointIndex.put(getAsInt(attrs.getValue("start")), l = new HashSet<Integer>());
+                Set l2 = taxiwayPointIndex.get(getAsInt(attrs.getValue("end")));
+                if (l2 == null) {
+                    taxiwayPointIndex.put(getAsInt(attrs.getValue("end")), l2 = new HashSet<Integer>());
+                }
+                l2.add(taxiwaySegmentCounter);
+                taxiwayPointIndex.put(getAsInt(attrs.getValue("end")), l2);
+
+
+                // incrementing counter
+                taxiwaySegmentCounter++;
+            } catch (Exception e) {
+                System.err.println("Error while collecting tw segments data " + e);
             }
-            l.add(taxiwaySegmentCounter);
-            taxiwayPointIndex.put(getAsInt(attrs.getValue("start")), l);
-
-            Set l2 = taxiwayPointIndex.get(getAsInt(attrs.getValue("end")));
-            if (l2 == null) {
-                taxiwayPointIndex.put(getAsInt(attrs.getValue("end")), l2 = new HashSet<Integer>());
-            }
-            l2.add(taxiwaySegmentCounter);
-            taxiwayPointIndex.put(getAsInt(attrs.getValue("end")), l2);
-
-
-            // incrementing counter
-            taxiwaySegmentCounter++;
         }
 
-        /* simple tw border drawing - obsolete
-        if (rawName.equals("TaxiwayPath") && //
-        (attrs.getValue("type").equalsIgnoreCase("TAXI"))) {
-        System.out.println(drawTaxiwayBorders(
-        TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lat,
-        TaxiwayPointsList.get(getAsInt(attrs.getValue("start"))).lon,
-        TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lat,
-        TaxiwayPointsList.get(getAsInt(attrs.getValue("end"))).lon,
-        Float.valueOf(attrs.getValue("width")).floatValue()));
+        // if we are inside aprons
+        if (rawName.equals("Aprons")) {
+            apron = true;
         }
-         */
+
+        if (rawName.equals("Vertex")) {
+            GeoCords thisVertex = new GeoCords(
+                    Double.valueOf(attrs.getValue("lat")).doubleValue(),
+                    Double.valueOf(attrs.getValue("lon")).doubleValue());
+            if (apron && lastVertex.lat != 0) {
+
+                System.out.println(ident + " " + getBoth(lastVertex) + " " + getBoth(thisVertex) + " apron");
+                lastVertex = thisVertex;
+            } else if (apron) {
+                lastVertex = thisVertex;
+                firstVertex = thisVertex;
+            }
+        }
+        if (rawName.equals("TaxiwayParking")) {
+            GeoCords pkCenter = new GeoCords(
+                    Double.valueOf(attrs.getValue("lat")).doubleValue(),
+                    Double.valueOf(attrs.getValue("lon")).doubleValue());
+            double pkHeading = Math.toRadians(Double.parseDouble(attrs.getValue("heading"))) + Math.PI / 8;
+            float pkRadius = Float.parseFloat(attrs.getValue("radius"));
+            //that was outer circle radius. now wr will calculate inner circle radius
+            //note that it is not exactly clear for me which radius should be used
+            // i belive it's inner one. but if it is outer one, you should comment this string out
+            pkRadius = pkRadius * (float) Math.cos(Math.PI / 4);
+
+            // parkings have 8 sides
+            // it's side eq r/(sqrt (1+sqrt(2)/2))
+            GeoCords pkStart = Trig.getPoint(pkCenter, pkRadius, pkHeading);
+            double initialHeading = Trig.to360(pkHeading) + 3 * Math.PI / 8;
+            double sideLength = pkRadius / (Math.sqrt(1 + (Math.sqrt(2) / 2)));
+
+            double thisHeading = initialHeading;
+            GeoCords thisCoord = pkStart;
+            for (int i = 0; i < 8; i++) {
+
+                GeoCords lastCoord = thisCoord;
+                thisCoord = Trig.getPoint(thisCoord, (float) sideLength, thisHeading);
+                System.out.println(
+                        ident + " " + getBoth(lastCoord) + " "
+                        + getBoth(thisCoord) + " parking");
+                thisHeading = Trig.to360(thisHeading + (Math.PI / 4));
+            }
+            System.out.println(
+                    ident + " " + getBoth(thisCoord) + " "
+                    + getBoth(pkStart) + " parking");
+        }
 
     }
 
@@ -424,9 +576,13 @@ public class App
     /** End element. */
     public void endElement(String namespaceURI, String localName,
             String rawName) {
-        //System.out.print("</");
-        //System.out.print(rawName);
-        //System.out.print(">");
+        if (rawName.equals("Aprons")) {
+            System.out.println(ident + " " + getBoth(lastVertex) + " " + getBoth(firstVertex) + " apron");
+            apron = false;
+            lastVertex.lat = 0;
+            lastVertex.lon = 0;
+
+        }
     } // endElement(String)
 
     /** Processing instruction. */
@@ -467,6 +623,16 @@ public class App
         throw ex;
     }
 
+    public static void initSector() {
+
+        System.out.println("#define taxi_center 4227200");
+        System.out.println("#define taxiway 10447616");
+        System.out.println("#define runway 16777215");
+        System.out.println("#define apron 8608822");
+        System.out.println("#define parking 100");
+
+    }
+
     /** Returns a string of the location. */
     private String getLocationString(SAXParseException ex) {
         StringBuffer str = new StringBuffer();
@@ -488,14 +654,27 @@ public class App
     } // getLocationString(SAXParseException):String
 
     /** Main program entry point. */
-    public static void main(String argv[]) {
-        System.out.println(argv[0]);
+    public static void main(String argv[]) throws FileNotFoundException {
+        //System.out.println(argv[0]);
+
+
         if (argv.length == 0
                 || (argv.length == 1 && argv[0].equals("-help"))) {
             System.out.println("\nfsxsct");
             System.exit(1);
         }
+        String in = argv[0];
+        String out = argv[1];
+
+
+        PrintStream st = new PrintStream(new FileOutputStream(out));
+        System.setOut(st);
+
+        initSector();
         App s1 = new App();
-        s1.parseURI(argv[0]);
+        s1.parseURI(in);
+
+        st.close();
+
     } // main(String[])
 }
