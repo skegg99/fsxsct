@@ -1,5 +1,7 @@
 package su.avsim.fsxsct;
 
+import su.avsim.bglxml.*;
+
 import java.io.PrintStream;
 import java.io.FileOutputStream;
 import java.io.FileNotFoundException;
@@ -654,14 +656,18 @@ public class App
     } // getLocationString(SAXParseException):String
 
     /** Main program entry point. */
-    public static void main(String argv[]) throws FileNotFoundException {
+    public static void main(String argv[]) throws Exception {
         //System.out.println(argv[0]);
-
-
+        
+        BglDecompiler bgld = new BglDecompiler(argv[2]);
+        System.out.println(bgld.decompile());
+        /** this will stay commented out for now as we
+         * will be developing dbldecompiler
+         *
         if (argv.length == 0
-                || (argv.length == 1 && argv[0].equals("-help"))) {
-            System.out.println("\nfsxsct");
-            System.exit(1);
+        || (argv.length == 1 && argv[0].equals("-help"))) {
+        System.out.println("\nfsxsct");
+        System.exit(1);
         }
         String in = argv[0];
         String out = argv[1];
@@ -675,6 +681,6 @@ public class App
         s1.parseURI(in);
 
         st.close();
-
+         */
     } // main(String[])
 }
