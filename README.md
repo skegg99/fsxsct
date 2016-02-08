@@ -1,5 +1,5 @@
 # fsxsct
-VATSIM Utility. Converting Microsoft Flight Simulator 2004 *.bgl files to *.sct (VRC/Euroscope sector files). 
+VATSIM Utility. Converting Microsoft Flight Simulator X *.bgl files to *.sct (VRC/Euroscope sector files). 
 Not really finished, but was good enough for basic sector files. 
 
 # bglxml
