@@ -45,10 +45,10 @@ class TaxiwayPoint {
     }
 
     public TaxiwayPoint(int index,
-            taxiwayPointType type,
-            taxiwayPointOrientation ori,
-            double lat,
-            double lon) {
+                        taxiwayPointType type,
+                        taxiwayPointOrientation ori,
+                        double lat,
+                        double lon) {
         this.index = index;
         this.type = type;
         this.ori = ori;
@@ -104,11 +104,11 @@ class Runway {
     double length, width, heading;
     String number, pD, sD;
 
-    public Runway (GeoCords start, GeoCords end, double length, double width, double heading, String number, String pD, String sD) {
+    public Runway(GeoCords start, GeoCords end, double length, double width, double heading, String number, String pD, String sD) {
         this.start = start;
         this.end = end;
         this.length = length;
-        this.width =  width;
+        this.width = width;
         this.heading = heading;
         this.number = number;
         this.pD = pD;

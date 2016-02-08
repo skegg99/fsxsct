@@ -7,33 +7,63 @@ import java.io.FileOutputStream;
 import java.io.FileNotFoundException;
 
 
-
 import java.util.*;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
+
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.helpers.DefaultHandler;
 
-public class App
-        extends DefaultHandler {
+/**
+ * Convert FS2004 *.bgl (xml) files to *.sct (VRC/Euroscope sector files)
+ */
+public class App extends DefaultHandler {
 
-    List<TaxiwayPoint> taxiwayPointsList = new ArrayList<TaxiwayPoint>();
-    List<TaxiwaySegment> taxiwaySegmentsList = new ArrayList<TaxiwaySegment>();
-    int taxiwaySegmentCounter = 0;
+    private List<TaxiwayPoint> taxiwayPointsList = new ArrayList<TaxiwayPoint>();
+    private List<TaxiwaySegment> taxiwaySegmentsList = new ArrayList<TaxiwaySegment>();
+    private int taxiwaySegmentCounter = 0;
     // tw segments index indexed by point
-    Map<Integer, Set<Integer>> taxiwayPointIndex = new HashMap<Integer, Set<Integer>>();
-    String ident = new String(); // airport icao ident form airport section
-    String name = new String(); // airport name form airport section
-    boolean geoPrinted = false; // we should print [GEO] only once
+    private Map<Integer, Set<Integer>> taxiwayPointIndex = new HashMap<Integer, Set<Integer>>();
+    private String ident = new String(); // airport icao ident form airport section
+    private String name = new String(); // airport name form airport section
+    private boolean geoPrinted = false; // we should print [GEO] only once
     //all runways as a collection of RunWay objects
-    List<Runway> runwayList = new ArrayList<Runway>();
+    private List<Runway> runwayList = new ArrayList<Runway>();
     // this is previous point while drawins apron
-    GeoCords lastVertex = new GeoCords();
+    private GeoCords lastVertex = new GeoCords();
     // this si first point of apron that was started with, should be closed with very last point
-    GeoCords firstVertex = new GeoCords();
-    boolean apron = false;
+    private GeoCords firstVertex = new GeoCords();
+    private boolean apron = false;
+
+    /**
+     * Main program entry point.
+     */
+    public static void main(String argv[]) throws Exception {
+
+        //this is commented out call to unfinished bgl decompiler
+        //have to use bglxml for now http://www.fsdeveloper.com/forum/resources/bglxml.90/
+        //BglDecompiler bgld = new BglDecompiler(argv[2]);
+        //System.out.println(bgld.decompile());
+
+        if (argv.length < 2 ) {
+            System.out.println("provide 2 parameters: input and output files");
+            System.exit(1);
+        }
+        String in = argv[0];
+        String out = argv[1];
+
+        PrintStream st = new PrintStream(new FileOutputStream(out));
+        System.setOut(st);
+
+        initSector();
+        App s1 = new App();
+        s1.parseURI(in);
+
+        st.close();
+
+    }
 
     public void parseURI(String uri) {
         try {
@@ -45,7 +75,9 @@ public class App
         }
     }
 
-    /** Start document. */
+    /**
+     * Start document.
+     */
     public void startDocument() {
         //System.out.println("<?xml version=\"1.0\"?>");
     } // startDocument()
@@ -66,8 +98,7 @@ public class App
             double degrees = Math.floor(coord);
             double tempMinutesLeft = (coord - degrees) * 60.0d;
             double minutes = Math.floor(tempMinutesLeft);
-            double seconds = (tempMinutesLeft - minutes) * 60.0d; // с долями
-            // используем американскую локаль, чтобы десятые отделялись точкой
+            double seconds = (tempMinutesLeft - minutes) * 60.0d;
             coordString = String.format(Locale.US, "%1$03.0f.%2$02.0f.%3$06.3f", degrees, minutes, seconds);
         } catch (Exception e) {
             System.err.println("Error while translating deg.deg to dms " + coordString + " " + e);
@@ -260,15 +291,15 @@ public class App
                 try {
                     if (cwIntersection != null && ccwIntersection != null) {
                         Double[] toReturn = new Double[]{thSegment - Double.valueOf(Trig.getBearing(
-                            taxiwayPointsList.get(thisPoint).lat,
-                            taxiwayPointsList.get(thisPoint).lon,
-                            ccwIntersection.lat,
-                            ccwIntersection.lon)).floatValue(),
-                            Double.valueOf(Trig.getBearing(
-                            taxiwayPointsList.get(thisPoint).lat,
-                            taxiwayPointsList.get(thisPoint).lon,
-                            cwIntersection.lat,
-                            cwIntersection.lon)).floatValue() - thSegment};
+                                taxiwayPointsList.get(thisPoint).lat,
+                                taxiwayPointsList.get(thisPoint).lon,
+                                ccwIntersection.lat,
+                                ccwIntersection.lon)).floatValue(),
+                                Double.valueOf(Trig.getBearing(
+                                        taxiwayPointsList.get(thisPoint).lat,
+                                        taxiwayPointsList.get(thisPoint).lon,
+                                        cwIntersection.lat,
+                                        cwIntersection.lon)).floatValue() - thSegment};
 
                         return toReturn;
                     }
@@ -318,11 +349,11 @@ public class App
         try {
             returnString =
                     ident + " "
-                    + getBoth(Trig.getPoint(startLat, startLon, dist1, ang1)) + " "
-                    + getBoth(Trig.getPoint(endLat, endLon, dist2, ang2)) + " taxiway" + "\n"
-                    + ident + " "
-                    + getBoth(Trig.getPoint(startLat, startLon, dist3, ang3)) + " "
-                    + getBoth(Trig.getPoint(endLat, endLon, dist4, ang4)) + " taxiway";
+                            + getBoth(Trig.getPoint(startLat, startLon, dist1, ang1)) + " "
+                            + getBoth(Trig.getPoint(endLat, endLon, dist2, ang2)) + " taxiway" + "\n"
+                            + ident + " "
+                            + getBoth(Trig.getPoint(startLat, startLon, dist3, ang3)) + " "
+                            + getBoth(Trig.getPoint(endLat, endLon, dist4, ang4)) + " taxiway";
 
         } catch (Exception e) {
             System.err.println("Error while trying to calculate taxyway borders " + e);
@@ -358,7 +389,9 @@ public class App
         return new String();
     }
 
-    /** End document. */
+    /**
+     * End document.
+     */
     public void endDocument() {
         // will now iterate through tw segments
         try {
@@ -378,9 +411,11 @@ public class App
 
     } // endDocument()
 
-    /** Start element. */
+    /**
+     * Start element.
+     */
     public void startElement(String namespaceURI, String localName,
-            String rawName, Attributes attrs) {
+                             String rawName, Attributes attrs) {
 
         //info and airport sections
         if (rawName.equals("Airport")) {
@@ -428,7 +463,7 @@ public class App
                     rwCenterLon,
                     (float) rwLength / 2,
                     Double.valueOf((Trig.getBackBearing(
-                    Math.toRadians(Double.parseDouble(attrs.getValue("heading")))))).doubleValue());
+                            Math.toRadians(Double.parseDouble(attrs.getValue("heading")))))).doubleValue());
 
             System.out.println(getBoth(rwStart) + " " + getBoth(rwEnd) + " " + ident + " " + name);
             // we will also add runway data to runwayList
@@ -449,10 +484,10 @@ public class App
             try {
                 taxiwayPointsList.add(Integer.parseInt(attrs.getValue("index")),
                         new TaxiwayPoint(Integer.parseInt(attrs.getValue("index")),
-                        TaxiwayPoint.returnType(attrs.getValue("type")),
-                        TaxiwayPoint.returnOrientation(attrs.getValue("orientation")),
-                        Double.valueOf(attrs.getValue("lat")).doubleValue(),
-                        Double.valueOf(attrs.getValue("lon")).doubleValue()));
+                                TaxiwayPoint.returnType(attrs.getValue("type")),
+                                TaxiwayPoint.returnOrientation(attrs.getValue("orientation")),
+                                Double.valueOf(attrs.getValue("lat")).doubleValue(),
+                                Double.valueOf(attrs.getValue("lon")).doubleValue()));
             } catch (Exception e) {
                 System.err.println("taxiwayPointsList " + e);
             }
@@ -479,15 +514,15 @@ public class App
         // collecting tw segments data
         if (rawName.equals("TaxiwayPath") && //
                 ((attrs.getValue("type").equalsIgnoreCase("TAXI"))
-                || (attrs.getValue("type").equalsIgnoreCase("RUNWAY")))) {
+                        || (attrs.getValue("type").equalsIgnoreCase("RUNWAY")))) {
             try {
                 // populating taxiwaySegmentsList arraylist with TW segments data
                 taxiwaySegmentsList.add(taxiwaySegmentCounter,
                         new TaxiwaySegment(getAsInt(attrs.getValue("start")),
-                        getAsInt(attrs.getValue("end")),
-                        Float.valueOf(attrs.getValue("width")),
-                        attrs.getValue("name"),
-                        attrs.getValue("type")));
+                                getAsInt(attrs.getValue("end")),
+                                Float.valueOf(attrs.getValue("width")),
+                                attrs.getValue("name"),
+                                attrs.getValue("type")));
 
                 // creating segment index by tw point for reference
                 Set l = taxiwayPointIndex.get(getAsInt(attrs.getValue("start")));
@@ -555,29 +590,35 @@ public class App
                 thisCoord = Trig.getPoint(thisCoord, (float) sideLength, thisHeading);
                 System.out.println(
                         ident + " " + getBoth(lastCoord) + " "
-                        + getBoth(thisCoord) + " parking");
+                                + getBoth(thisCoord) + " parking");
                 thisHeading = Trig.to360(thisHeading + (Math.PI / 4));
             }
             System.out.println(
                     ident + " " + getBoth(thisCoord) + " "
-                    + getBoth(pkStart) + " parking");
+                            + getBoth(pkStart) + " parking");
         }
 
     }
 
-    /** Characters. */
+    /**
+     * Characters.
+     */
     public void characters(char ch[], int start, int length) {
         //System.out.print(new String(ch, start, length));
     } // characters(char[],int,int);
 
-    /** Ignorable whitespace. */
+    /**
+     * Ignorable whitespace.
+     */
     public void ignorableWhitespace(char ch[], int start, int length) {
         //characters(ch, start, length);
     } // ignorableWhitespace(char[],int,int);
 
-    /** End element. */
+    /**
+     * End element.
+     */
     public void endElement(String namespaceURI, String localName,
-            String rawName) {
+                           String rawName) {
         if (rawName.equals("Aprons")) {
             System.out.println(ident + " " + getBoth(lastVertex) + " " + getBoth(firstVertex) + " apron");
             apron = false;
@@ -587,7 +628,9 @@ public class App
         }
     } // endElement(String)
 
-    /** Processing instruction. */
+    /**
+     * Processing instruction.
+     */
     public void processingInstruction(String target, String data) {
         System.out.print("<?");
         System.out.print(target);
@@ -602,21 +645,28 @@ public class App
     //
     // ErrorHandler methods
     //
-    /** Warning. */
+
+    /**
+     * Warning.
+     */
     public void warning(SAXParseException ex) {
         System.err.println("[Warning] "
                 + getLocationString(ex) + ": "
                 + ex.getMessage());
     }
 
-    /** Error. */
+    /**
+     * Error.
+     */
     public void error(SAXParseException ex) {
         System.err.println("[Error] "
                 + getLocationString(ex) + ": "
                 + ex.getMessage());
     }
 
-    /** Fatal error. */
+    /**
+     * Fatal error.
+     */
     public void fatalError(SAXParseException ex)
             throws SAXException {
         System.err.println("[Fatal Error] "
@@ -635,7 +685,9 @@ public class App
 
     }
 
-    /** Returns a string of the location. */
+    /**
+     * Returns a string of the location.
+     */
     private String getLocationString(SAXParseException ex) {
         StringBuffer str = new StringBuffer();
 
@@ -655,32 +707,5 @@ public class App
         return str.toString();
     } // getLocationString(SAXParseException):String
 
-    /** Main program entry point. */
-    public static void main(String argv[]) throws Exception {
-        //System.out.println(argv[0]);
-        
-        BglDecompiler bgld = new BglDecompiler(argv[2]);
-        System.out.println(bgld.decompile());
-        /** this will stay commented out for now as we
-         * will be developing dbldecompiler
-         *
-        if (argv.length == 0
-        || (argv.length == 1 && argv[0].equals("-help"))) {
-        System.out.println("\nfsxsct");
-        System.exit(1);
-        }
-        String in = argv[0];
-        String out = argv[1];
 
-
-        PrintStream st = new PrintStream(new FileOutputStream(out));
-        System.setOut(st);
-
-        initSector();
-        App s1 = new App();
-        s1.parseURI(in);
-
-        st.close();
-         */
-    } // main(String[])
 }

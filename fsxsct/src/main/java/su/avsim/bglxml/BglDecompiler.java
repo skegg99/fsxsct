@@ -40,7 +40,6 @@ class BglSubSection {
 }
 
 /**
- *
  * @author dennis begun
  */
 public class BglDecompiler {
@@ -74,18 +73,20 @@ public class BglDecompiler {
 
     /**
      * this will decompile airportSubSection
+     *
      * @param subSection
      */
     public void decompileAirportSubSection(int subSectionIndex) throws IOException {
         BglSubSection subSection = subSections.get(subSectionIndex);
         fin.seek(subSection.offset); //move to subsection
-        short ssid = inv (fin.readShort());
+        short ssid = inv(fin.readShort());
         int sssize = inv(fin.readInt());
     }
 
     /**
      * this will iterate airport section subsections (hopefully only one per file)
      * and pass subsection id to airport subsection decompiler
+     *
      * @param section section index
      */
     public void decompileAirportSection(int section) throws IOException {

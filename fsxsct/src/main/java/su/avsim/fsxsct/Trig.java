@@ -6,7 +6,6 @@ package su.avsim.fsxsct;
 
 /**
  * Class, responsible for all kinds of geographocal calculations
- *
  */
 class Trig {
 
@@ -49,6 +48,7 @@ class Trig {
         double lon2 = (lon + dLon + Math.PI) % (2 * Math.PI) - Math.PI;
         return new GeoCords(Math.toDegrees(lat2), Math.toDegrees(lon2));
     }
+
     // and an overloaded version with geocords
     public static GeoCords getPoint(GeoCords geo, float dist, double brng) {
         return getPoint(geo.lat, geo.lon, dist, brng);
@@ -73,7 +73,7 @@ class Trig {
     }
 
     /**
-     *  calculates intersection (coords) of two paths given coords on bearing
+     * calculates intersection (coords) of two paths given coords on bearing
      */
     public static GeoCords getIntersectionCoords(GeoCords p1, double brng1, GeoCords p2, double brng2) {
         double lat1 = Math.toRadians(p1.lat);
